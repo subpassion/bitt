@@ -12,10 +12,12 @@ using bencode_list = std::vector<json>;
 
 class BencodeUtils {
 public:
+    static constexpr uint8_t SHA1_HASH_SIZE = 20;
+
     static json decode_bencode_value(const std::string& encoded_value);
     static std::string encode_bencode(const json& bencoded_value);
     static std::string calculate_sha1(const std::string& data);
-
+    static std::string sha1_to_hex(const std::string& hash);
 private:
     static std::tuple<json, int> decode_bencoded_value(const std::string& encoded_value, int start);
 };

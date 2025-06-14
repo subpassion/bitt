@@ -89,16 +89,20 @@ std::tuple<json, int> BencodeUtils::decode_bencoded_value(const std::string& enc
 
 std::string BencodeUtils::calculate_sha1(const std::string& data)
 {
-    unsigned char hash[SHA_DIGEST_LENGTH];
-    SHA1(reinterpret_cast<const unsigned char*>(data.c_str()), data.size(), hash);
+    uint8_t hash[SHA1_HASH_SIZE];
+    SHA1(reinterpret_cast<const uint8_t*>(data.c_str()), data.size(), hash);
+    std::string result(reinterpret_cast<const char*>(hash), SHA1_HASH_SIZE);
+    return sha1_to_hex(result);
+}
 
+std::string BencodeUtils::sha1_to_hex(const std::string& hash)
+{
     auto result = std::string{};
-    result.reserve(SHA_DIGEST_LENGTH * 2);
-    for (int i = 0; i < SHA_DIGEST_LENGTH; ++i) 
+    result.reserve(SHA1_HASH_SIZE * 2);
+    for (int i = 0; i < SHA1_HASH_SIZE; ++i) 
     {
-        result += std::format("{:02x}", static_cast<int>(hash[i]));
+        result += std::format("{:02x}", static_cast<uint8_t>(hash[i]));
     }
-
     return result;
 }
 

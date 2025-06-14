@@ -51,10 +51,18 @@ int main(int argc, char* argv[])
         auto info_dict = meta_info_dict["info"].get<bencode_dictionary>();
         auto encoded_info_dict = BencodeUtils::encode_bencode(info_dict);
         auto hash = BencodeUtils::calculate_sha1(encoded_info_dict);
+        auto pieces = info_dict["pieces"].get<std::string>();
 
         std::cout << std::format("Tracker URL: {}\n", meta_info_dict["announce"].get<std::string>());
         std::cout << std::format("The length of the file is: {}\n", info_dict["length"].dump());
         std::cout << std::format("Info hash: {}\n", hash);
+        std::cout << "Piece Hashes:\n";
+        
+        for (auto current_piece_index = 0; current_piece_index < pieces.size(); current_piece_index += BencodeUtils::SHA1_HASH_SIZE) 
+        {
+            auto current_piece = pieces.substr(current_piece_index, BencodeUtils::SHA1_HASH_SIZE);
+            std::cout << BencodeUtils::sha1_to_hex(current_piece) << std::endl;
+        }
     }
     // TODO: use google test
     else if (command == "test") 
