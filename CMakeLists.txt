@@ -10,4 +10,4 @@ add_executable(bitt
                src/bencode_utils.hpp
                src/bencode_utils.cpp)
 
-target_link_libraries(bitt PRIVATE OpenSSL::Crypto)
+target_link_libraries(bitt PRIVATE OpenSSL::Crypto ws2_32)

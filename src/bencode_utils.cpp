@@ -3,6 +3,7 @@
 #include <format>
 #include <iostream>
 #include <openssl/sha.h>
+#include <fstream>
 
 json BencodeUtils::decode_bencode_value(const std::string& encoded_value)
 {
@@ -92,7 +93,7 @@ std::string BencodeUtils::calculate_sha1(const std::string& data)
     uint8_t hash[SHA1_HASH_SIZE];
     SHA1(reinterpret_cast<const uint8_t*>(data.c_str()), data.size(), hash);
     std::string result(reinterpret_cast<const char*>(hash), SHA1_HASH_SIZE);
-    return sha1_to_hex(result);
+    return result;
 }
 
 std::string BencodeUtils::sha1_to_hex(const std::string& hash)
