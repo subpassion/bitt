@@ -18,6 +18,7 @@ public:
     static std::string encode_bencode(const json& bencoded_value);
     static std::string calculate_sha1(const std::string& data);
     static std::string sha1_to_hex(const std::string& hash);
+    static std::string read_to_string(const std::string& file_path);
 private:
     static std::tuple<json, int> decode_bencoded_value(const std::string& encoded_value, int start);
 };
