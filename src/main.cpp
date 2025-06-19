@@ -7,11 +7,14 @@
 #include <vector>
 
 #include "bencode_utils.hpp"
+#include "tcp_client.hpp"
 #include "lib/nlohmann/json.hpp"
 
 #include "lib/httplib/httplib.h"
 
-int main(int argc, char* argv[])
+static std::string PEER_ID = "my_unique_peer_id042";
+
+int main(int argc, char *argv[])
 {
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
@@ -42,19 +45,15 @@ int main(int argc, char* argv[])
             return 1;
         }
 
-        auto torrent_file = std::string(argv[2]);
-        std::ifstream ifs(torrent_file, std::fstream::binary);
-        std::stringstream file_content;
-        file_content << ifs.rdbuf();
-
-        auto file_content_str = file_content.str();
-        auto meta_info = BencodeUtils::decode_bencode_value(file_content_str);
+        auto torrent_file = BencodeUtils::read_to_string(argv[2]);
+        auto meta_info = BencodeUtils::decode_bencode_value(torrent_file);
         auto meta_info_dict = meta_info.get<bencode_dictionary>();
         auto info_dict = meta_info_dict["info"].get<bencode_dictionary>();
         auto encoded_info_dict = BencodeUtils::encode_bencode(info_dict);
         auto hash_raw = BencodeUtils::calculate_sha1(encoded_info_dict);
         bool is_info = command == "info";
-        if (is_info) 
+
+        if (is_info)
         {
             auto pieces = info_dict["pieces"].get<std::string>();
 
@@ -62,8 +61,8 @@ int main(int argc, char* argv[])
             std::cout << std::format("The length of the file is: {}\n", info_dict["length"].dump());
             std::cout << std::format("Info hash: {}\n", BencodeUtils::sha1_to_hex(hash_raw));
             std::cout << "Piece Hashes:\n";
-            
-            for (auto current_piece_index = 0; current_piece_index < pieces.size(); current_piece_index += BencodeUtils::SHA1_HASH_SIZE) 
+
+            for (auto current_piece_index = 0; current_piece_index < pieces.size(); current_piece_index += BencodeUtils::SHA1_HASH_SIZE)
             {
                 auto current_piece = pieces.substr(current_piece_index, BencodeUtils::SHA1_HASH_SIZE);
                 std::cout << BencodeUtils::sha1_to_hex(current_piece) << std::endl;
@@ -72,20 +71,19 @@ int main(int argc, char* argv[])
         else
         {
             auto announcement_url = meta_info_dict["announce"].get<std::string>();
-            auto peer_id = std::string("my_unique_peer_id042");
             auto port = 6881;
             auto uploaded = 0;
             auto downloaded = 0;
-            auto left = file_content_str.size();
+            auto left = torrent_file.size();
             auto compact = 1;
             auto query = std::format("/announce?info_hash={}&peer_id={}&port={}&uploaded={}&downloaded={}&left={}&compact={}",
-                                      httplib::detail::encode_query_param(hash_raw), peer_id, port, uploaded, downloaded, left, compact);
-            auto host_name=  std::string("http://bittorrent-test-tracker.codecrafters.io");
+                                     httplib::detail::encode_query_param(hash_raw), PEER_ID, port, uploaded, downloaded, left, compact);
+            auto host_name = std::string("http://bittorrent-test-tracker.codecrafters.io");
 
             httplib::Client cli(host_name);
-            if (auto res = cli.Get(query)) 
+            if (auto res = cli.Get(query))
             {
-                if (res->status == httplib::StatusCode::OK_200) 
+                if (res->status == httplib::StatusCode::OK_200)
                 {
                     auto tracker_response = BencodeUtils::decode_bencode_value(res->body);
                     auto peers = tracker_response.get<bencode_dictionary>()["peers"].get<std::string>();
@@ -93,39 +91,79 @@ int main(int argc, char* argv[])
                     for (int i = 0; i < peers.size(); i += peer_addr_length)
                     {
                         auto peer_addr = peers.substr(i, peer_addr_length);
-                        std::cout << std::format("{:02x}{:02x}", peer_addr[4], peer_addr[5]);
                         uint16_t peer_port = (static_cast<uint8_t>(peer_addr[4]) << 8) | static_cast<uint8_t>(peer_addr[5]);
                         std::cout << std::format("{:d}.{:d}.{:d}.{:d}:{}\n", peer_addr[0], peer_addr[1], peer_addr[2], peer_addr[3], peer_port);
                     }
                 }
-            } 
-            else 
+            }
+            else
             {
                 auto err = res.error();
                 std::cout << "HTTP error: " << httplib::to_string(err) << std::endl;
             }
         }
     }
+    else if (command == "handshake")
+    {
+        if (argc < 4)
+        {
+            std::cerr << std::format("Usage: {} handshake <torrent_file> <peer_ip:peer_port>\n", argv[0]);
+            return 1;
+        }
+
+        auto ip_and_port = std::string(argv[3]);
+        auto ip_ends = ip_and_port.find(':');
+        auto ip = ip_and_port.substr(0, ip_ends);
+        auto port = std::atoll(ip_and_port.substr(ip_ends + 1).c_str());
+
+        auto torrent_file = BencodeUtils::read_to_string(argv[2]);
+        auto meta_info = BencodeUtils::decode_bencode_value(torrent_file);
+        auto meta_info_dict = meta_info.get<bencode_dictionary>();
+        auto info_dict = meta_info_dict["info"].get<bencode_dictionary>();
+        auto encoded_info_dict = BencodeUtils::encode_bencode(info_dict);
+        auto hash_raw = BencodeUtils::calculate_sha1(encoded_info_dict);
+
+        TcpClient client(ip, port);
+        if (client.init())
+        {
+            auto bit_torrent_protocol = std::string("BitTorrent protocol");
+            auto message = std::string();
+            message.append("\x13");
+            message.append(bit_torrent_protocol);
+            message.append("\x00\x00\x00\x00\x00\x00\x00\x00", 8);
+            message.append(hash_raw);
+            message.append(PEER_ID);
+
+            client.send_message(message);
+
+            auto response_handshake = client.receive_message();
+            std::cout << response_handshake;
+            std::cout << "Peer ID: " << BencodeUtils::sha1_to_hex(response_handshake.substr(response_handshake.size() - PEER_ID.size())) << std::endl;
+        }
+        else
+        {
+            std::cout << std::format("[ERROR] {}\n", client.error());
+        }
+    }
     // TODO: use google test
-    else if (command == "test") 
+    else if (command == "test")
     {
         // test numbers
         {
-            try 
+            try
             {
-                std::unordered_map<std::string, int> test_numbers {
-                    {"i32e", 32 },
+                std::unordered_map<std::string, int> test_numbers{
+                    {"i32e", 32},
                     {"i-32e", -32},
-                    {"i0e", 0}
-                };
-                for (auto&& [bencoded_value, expected_value] : test_numbers)
+                    {"i0e", 0}};
+                for (auto &&[bencoded_value, expected_value] : test_numbers)
                 {
                     auto decoded_number = BencodeUtils::decode_bencode_value(bencoded_value);
                     assert(decoded_number.get<int>() == expected_value);
                 }
                 std::cout << "[OK] Test numbers\n";
             }
-            catch (std::exception e) 
+            catch (std::exception e)
             {
                 std::cout << std::format("[ERROR] Test numbers {}\n", e.what());
             }
@@ -134,11 +172,11 @@ int main(int argc, char* argv[])
         {
             try
             {
-                std::unordered_map<std::string, std::string> test_strings {
-                    {"5:hello", "hello" },
+                std::unordered_map<std::string, std::string> test_strings{
+                    {"5:hello", "hello"},
                     {"1:h", "h"},
                 };
-                for (auto&& [bencoded_value, expected_value] : test_strings)
+                for (auto &&[bencoded_value, expected_value] : test_strings)
                 {
                     auto decoded_string = BencodeUtils::decode_bencode_value(bencoded_value);
                     assert(decoded_string.get<std::string>() == expected_value);
@@ -152,7 +190,8 @@ int main(int argc, char* argv[])
         }
         // test lists
         {
-            try {
+            try
+            {
                 auto list = BencodeUtils::decode_bencode_value("li32elleei42ee");
                 assert(list.is_array());
 
@@ -171,7 +210,7 @@ int main(int argc, char* argv[])
         }
         // test dictionaries
         {
-            try 
+            try
             {
                 auto dict = BencodeUtils::decode_bencode_value("d9:publisher3:bob17:publisher-webpage15:www.example.com18:publisher.location4:homee");
                 auto json_map = dict.get<std::map<std::string, json>>();
@@ -185,7 +224,7 @@ int main(int argc, char* argv[])
                 std::cout << std::format("[ERROR] Test dictionaries {}\n", e.what());
             }
         }
-    } 
+    }
     else
     {
         std::cerr << std::format("Unknown command: {}\n ", command);
