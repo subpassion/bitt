@@ -8,6 +8,8 @@ find_package(OpenSSL REQUIRED)
 add_executable(bitt
                src/main.cpp
                src/bencode_utils.hpp
-               src/bencode_utils.cpp)
+               src/tcp_client.hpp
+               src/bencode_utils.cpp
+               src/tcp_client.cpp)
 
 target_link_libraries(bitt PRIVATE OpenSSL::Crypto ws2_32)
