@@ -4,6 +4,7 @@
 #include <iostream>
 #include <openssl/sha.h>
 #include <fstream>
+#include <format>
 
 json BencodeUtils::decode_bencode_value(const std::string &encoded_value)
 {
@@ -145,10 +146,24 @@ std::string BencodeUtils::encode_bencode(const json &bencoded_value)
     return "";
 }
 
-std::string BencodeUtils::read_to_string(const std::string& path_to_file)
+std::string BencodeUtils::read_to_string(const std::string &path_to_file)
 {
     std::ifstream ifs(path_to_file, std::fstream::binary);
     std::stringstream file_content;
     file_content << ifs.rdbuf();
     return file_content.str();
+}
+
+std::vector<ip_and_port> BencodeUtils::parse_peers_addresses(const std::string &peers)
+{
+    std::vector<ip_and_port> res;
+    auto peer_addr_length = 6;
+    for (int i = 0; i < peers.size(); i += peer_addr_length)
+    {
+        auto peer_addr = peers.substr(i, peer_addr_length);
+        uint16_t peer_port = (static_cast<uint8_t>(peer_addr[4]) << 8) | static_cast<uint8_t>(peer_addr[5]);
+        res.push_back({std::format("{:d}.{:d}.{:d}.{:d}", peer_addr[0], peer_addr[1], peer_addr[2], peer_addr[3]),
+                       peer_port});
+    }
+    return res;
 }

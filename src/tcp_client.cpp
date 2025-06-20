@@ -8,16 +8,15 @@ TcpClient::TcpClient(const std::string &ip, uint32_t port)
 {
 }
 
-bool TcpClient::init()
+void TcpClient::init()
 {
     // Assume that WSAStartup is called by httplib
     m_client_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (m_client_socket == INVALID_SOCKET)
     {
-        m_error = std::format("Error during socket creation {}\n", WSAGetLastError());
-        return false;
+        throw std::runtime_error(std::format("Error during socket creation {}\n", WSAGetLastError()));
     }
-    std::cout << "[INFO] Create to successfully\n";
+    std::cout << "[INFO] Create socket successfully\n";
 
     sockaddr_in service;
     service.sin_family = AF_INET;
@@ -25,12 +24,10 @@ bool TcpClient::init()
     service.sin_port = htons(m_port);
     if (connect(m_client_socket, reinterpret_cast<SOCKADDR *>(&service), sizeof(service)) == SOCKET_ERROR)
     {
-        m_error = std::format("Can't connect socket to {}:{}, error - {}", m_ip, m_port, WSAGetLastError());
         closesocket(m_client_socket);
-        return false;
+        throw std::runtime_error(std::format("Can't connect socket to {}:{}, error - {}\n", m_ip, m_port, WSAGetLastError()));
     }
     std::cout << "[INFO] Connected to socket successfully\n";
-    return true;
 }
 
 int TcpClient::send_message(const std::string &message)
@@ -40,8 +37,7 @@ int TcpClient::send_message(const std::string &message)
     auto send_bytes = send(m_client_socket, message.data(), message.size(), 0);
     if (send_bytes == SOCKET_ERROR)
     {
-        m_error = std::format("Client failed to send message: {}\n", WSAGetLastError());
-        return -1;
+        throw std::runtime_error(std::format("Client failed to send message: {}\n", WSAGetLastError()));
     }
     return send_bytes;
 }
@@ -54,14 +50,9 @@ std::string TcpClient::receive_message()
     auto res = std::string();
     if (receive_bytes < 0)
     {
-        m_error = std::format("Client recv error: {}", WSAGetLastError());
-        return res;
+        throw std::runtime_error(std::format("Client recv error: {}", WSAGetLastError()));
     }
+    
     std::cout << std::format("[INFO] Received {} bytes\n", receive_bytes);
     return std::string(receive_buffer, receive_bytes);
-}
-
-std::string TcpClient::error() const
-{
-    return m_error;
 }

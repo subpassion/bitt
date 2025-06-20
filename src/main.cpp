@@ -7,10 +7,10 @@
 #include <vector>
 
 #include "bencode_utils.hpp"
-#include "tcp_client.hpp"
-#include "lib/nlohmann/json.hpp"
-
 #include "lib/httplib/httplib.h"
+#include "lib/nlohmann/json.hpp"
+#include "tcp_client.hpp"
+#include "tracker_communication.hpp"
 
 static std::string PEER_ID = "my_unique_peer_id042";
 
@@ -71,35 +71,34 @@ int main(int argc, char *argv[])
         else
         {
             auto announcement_url = meta_info_dict["announce"].get<std::string>();
-            auto port = 6881;
-            auto uploaded = 0;
-            auto downloaded = 0;
-            auto left = torrent_file.size();
-            auto compact = 1;
-            auto query = std::format("/announce?info_hash={}&peer_id={}&port={}&uploaded={}&downloaded={}&left={}&compact={}",
-                                     httplib::detail::encode_query_param(hash_raw), PEER_ID, port, uploaded, downloaded, left, compact);
-            auto host_name = std::string("http://bittorrent-test-tracker.codecrafters.io");
+            auto announcement_info = Communication::AnnouncementInfo{
+                .info_hash = hash_raw,
+                .peer_id = PEER_ID,
+                .port = 6881,
+                .uploaded = 0,
+                .downloaded = 0,
+                .left = torrent_file.size(),
+                .compact = 1};
+            auto domain_name_end = announcement_url.find("/announce");
+            auto domain_name = announcement_url.substr(0, domain_name_end);
+            httplib::Client cli(domain_name);
 
-            httplib::Client cli(host_name);
-            if (auto res = cli.Get(query))
+            if (auto res = cli.Get(Communication::create_announcement_query(announcement_info)))
             {
                 if (res->status == httplib::StatusCode::OK_200)
                 {
                     auto tracker_response = BencodeUtils::decode_bencode_value(res->body);
                     auto peers = tracker_response.get<bencode_dictionary>()["peers"].get<std::string>();
-                    auto peer_addr_length = 6;
-                    for (int i = 0; i < peers.size(); i += peer_addr_length)
+                    auto peer_addresses = BencodeUtils::parse_peers_addresses(peers);
+                    for (auto &&[ip, port] : peer_addresses)
                     {
-                        auto peer_addr = peers.substr(i, peer_addr_length);
-                        uint16_t peer_port = (static_cast<uint8_t>(peer_addr[4]) << 8) | static_cast<uint8_t>(peer_addr[5]);
-                        std::cout << std::format("{:d}.{:d}.{:d}.{:d}:{}\n", peer_addr[0], peer_addr[1], peer_addr[2], peer_addr[3], peer_port);
+                        std::cout << std::format("{}:{}\n", ip, port);
                     }
                 }
             }
             else
             {
-                auto err = res.error();
-                std::cout << "HTTP error: " << httplib::to_string(err) << std::endl;
+                throw std::runtime_error(std::format("HTTP error: {}", httplib::to_string(res.error())));
             }
         }
     }
@@ -122,28 +121,13 @@ int main(int argc, char *argv[])
         auto info_dict = meta_info_dict["info"].get<bencode_dictionary>();
         auto encoded_info_dict = BencodeUtils::encode_bencode(info_dict);
         auto hash_raw = BencodeUtils::calculate_sha1(encoded_info_dict);
-
-        TcpClient client(ip, port);
-        if (client.init())
-        {
-            auto bit_torrent_protocol = std::string("BitTorrent protocol");
-            auto message = std::string();
-            message.append("\x13");
-            message.append(bit_torrent_protocol);
-            message.append("\x00\x00\x00\x00\x00\x00\x00\x00", 8);
-            message.append(hash_raw);
-            message.append(PEER_ID);
-
-            client.send_message(message);
-
-            auto response_handshake = client.receive_message();
-            std::cout << response_handshake;
-            std::cout << "Peer ID: " << BencodeUtils::sha1_to_hex(response_handshake.substr(response_handshake.size() - PEER_ID.size())) << std::endl;
-        }
-        else
-        {
-            std::cout << std::format("[ERROR] {}\n", client.error());
-        }
+        auto client = TcpClient(ip, port);
+        auto handshake_info = Communication::HandshakeInfo{.hash = hash_raw, .peer_id = PEER_ID};
+        
+        client.init();
+        client.send_message(Communication::create_handshake_message(handshake_info));
+        auto response_handshake = client.receive_message();
+        std::cout << std::format("Peer ID: {}\n", BencodeUtils::sha1_to_hex(response_handshake.substr(response_handshake.size() - PEER_ID.size())));
     }
     // TODO: use google test
     else if (command == "test")
